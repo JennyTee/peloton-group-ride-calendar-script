@@ -33,14 +33,12 @@ function getGroupRides() {
   for (let i = 0; i < onDemandGroupRidePosts.length; i++) {
     let post = onDemandGroupRidePosts[i].data;
     let title = post.title.replace(/\s/g,'');
-    const rideDate = getGroupRideDate(title);
-    const rideTime = getGroupRideTime(title);
+    const rideDateTime = getGroupRideDateTime(title);
     const classId = post.selftext.match(classIdRegEx);
-    if (!!rideTime && !!rideDate && classId) {
-      console.log(title);
-      console.log(`ride date: ${rideDate}, ride time: ${rideTime}, classId: ${classId}`);
+    if (!!rideDateTime && classId) {
+      Logger.log(title);
     } else {
-      console.log(`parsing error for: ${!!rideDate ? '' : 'rideDate '}${!!rideTime ? '' : 'rideTime '}`);
+      console.log(`parsing error for rideDateTime: ${rideDateTime}`);
       console.log(`post title: ${title}`);
     }
   }
@@ -77,22 +75,72 @@ function getGroupRides() {
   }
 }
 
-function getGroupRideDate(title) {
-  const groupRideDateRegEx = /(([1-9]|0[1-9]|1[012])[- \/.]([1-9]|0[1-9]|[12][0-9]|3[01])[- \/.](20[23][0-9]|[23][0-9]))|(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?([1-9]|[12][0-9]|3[01])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
-  let dateString = title.match(groupRideDateRegEx);
-  if (!dateString)
-    return '';
-  return dateString[0];
+function getGroupRideDateTime(title) {
+  const mmddRegEx = /(([1-9]|0[1-9]|1[012])[- \/.]([1-9]|0[1-9]|[12][0-9]|3[01])[- \/.](20[23][0-9]|[23][0-9]))/;
+  const monthDateRegEx = /(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?([1-9]|[12][0-9]|3[01])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
+  const mmdd = title.match(mmddRegEx);
+  const monthDate = title.match(monthDateRegEx);
+  let month = 0;
+  let date = 0;
+  let year = 0;
+  
+  if (!!mmdd && mmdd.length >= 5) {
+    //todo - convert to timestamp. index 2 is month, 3 is date, and 4 is year
+    month = parseInt(mmdd[2], 10);
+    date = parseInt(mmdd[3], 10);
+    // Note: only works for 20xx years
+    year = parseInt((mmdd[4].length == 4 ? mmdd[4] : ('20' + mmdd[4].slice(0,2))), 10);
+  } else if (!!monthDate) {
+    //todo - convert to timestamp
+  } else {
+    Logger.log(`Could not parse date string from post title: ${title}`);
+    return null;
+  }
+  
+  let rideTime = getGroupRideTime(title);
+  //let birthday = new Date(1995, 11, 17, 3, 24, 0)
+  let rideDateTime = new Date(year, month, date, rideTime[0], rideTime[1], 0);
+  return rideDateTime;
+  
   const mmddyyyRegEx = /(([1-9]|0[1-9]|1[012])[- \/.]([1-9]|0[1-9]|[12][0-9]|3[01])[- \/.](20[23][0-9]|[23][0-9]))/
   const longFormRegEx = /(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?([1-9]|[12][0-9]|3[01])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
 }
 
 function getGroupRideTime(title) {
-  const groupRideTimeRegEx = /(([1-9]|1[012])[:.]([0-5][0-9])|([1-9]|1[012]))[pa]m([pmce][sd]t|[pmce]t)/i;
+  const groupRideTimeRegEx = /(([1-9]|1[012])[:.]([0-5][0-9])|([1-9]|1[012]))([pa]m)([pmce][sd]t|[pmce]t)/i;
+  let hour = 0;
+  let minutes = 0;
+  let timeZone = '';
+  
   let timeString = title.match(groupRideTimeRegEx);
-  if (!timeString)
-    return '';
-  return timeString[0];
+  if (!!timeString && timeString.length >= 7) {
+    const isPM = timeString[5].toLowerCase() === 'pm';
+    hour = isPM ? (parseInt(timeString[2], 10) + 12) : parseInt(timeString[2], 10);
+    minutes = parseInt(timeString[3], 10);
+    timeZone = timeString[6].toLowerCase();
+  } else {
+      Logger.log(`Could not parse time string from post title: ${title}`);
+      return null;
+  }
+  
+  // This script assumes the group ride calendar is defaulted to use Eastern Time.
+  let easternTimeArray = convertToEasternTime(hour, minutes, timeZone);
+  return easternTimeArray;
+}
+
+function convertToEasternTime(hour, minutes, timeZone) {
+  if (timeZone === 'est' || timeZone === 'et' || timeZone === 'edt') {
+    return new Array(hour, minutes);
+  } else if (timeZone === 'cst' || timeZone === 'ct' || timeZone === 'cdt') {
+    return new Array(hour + 1, minutes);
+  } else if (timeZone === 'mst' || timeZone === 'mt' || timeZone === 'mdt') {
+    return new Array(hour + 2, minutes);
+  } else if (timeZone === 'pst' || timeZone === 'pt' || timeZone === 'pdt') {
+    return new Array(hour + 3, minutes);
+  } else {
+    Logger.log(`Could not convert to Eastern time. Hour: ${hour}, Minutes: ${minutes}, Time Zone: ${timeZone}`);
+    return null;
+  }
 }
 
 function getUpcomingEvents(calendarId) {
