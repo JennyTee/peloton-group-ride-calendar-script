@@ -28,7 +28,7 @@ function syncGroupRideCalendar() {
     (now.getHours() == 6 && now.getMinutes() <= 10 && now.getMinutes() > 0) ||
     (now.getHours() == 18 && now.getMinutes() <= 10 && now.getMinutes() > 0)) {
       MailApp.sendEmail(emailForLogs, 'Group ride script execution log', loggingEmailText);
-      Logger.log('Script execution email sent.')
+      Logger.log(`Script execution email sent to ${emailForLogs}.`);
   }
 }
 
@@ -115,14 +115,21 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
     }
+    
+    // if event summary doesn't have [Encore] in it, then it's a live ride. This is a dependency on the live ride calendar script.
+    if (!matchingEvent.summary.includes('[Encore]')) {
+      matchingEvent.summary = matchingEvent.summary.concat(' [Live]');
+    }
 
-    matchingEvent.description = matchingEvent.description.concat(`\n\nRide Thread: ${post.url}\n\nRide Thread text: ${post.title}\n\n${post.selftext}`);
+    // add group ride post information to event description
+    matchingEvent.description = buildEventDescription(matchingEvent.description, post, false),
 
+    matchingEvent.summary = matchingEvent.summary.concat(' [Live]');
     // If an event with same eventId was already created & deleted, inserting the same event again will fail. Clearing out the below ids avoids that issue.
     matchingEvent.id = '';
     matchingEvent.iCalUID = '';
     Calendar.Events.insert(matchingEvent, groupCalendarId);
-    const logMessage = `Success: Live ride calendar event copied to group calendar.`;
+    const logMessage = `Success: Live ride calendar event copied to group calendar.\nRide start time: ${matchingEvent.getStart().getDateTime()}`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
   }
@@ -174,7 +181,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
     
     let event = createOnDemandEvent(classId, rideDateTime, post);
     if (!!event) {
-      const logMessage = `Success: On demand ride calendar event created in group calendar.`;
+      const logMessage = `Success: On demand ride calendar event created in group calendar.\nRide start time: ${rideDateTime}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     }
@@ -196,7 +203,7 @@ function createOnDemandEvent(classId, startDateTime, post) {
   let event = {
     summary: summary,
     location: instructorName,
-    description: post.selftext + '\n\nCompliments of the largest global Peloton community at https://www.reddit.com/r/pelotoncycle',
+    description: buildEventDescription(ride.description, post, true),
     start: {
       dateTime: startDateTime.toISOString()
     },
@@ -244,6 +251,14 @@ function getInstructorName(instructorId) {
     }
   }
   return '';
+}
+
+function buildEventDescription(pelotonRideDescription, redditPost, includeComplimentsOf) {
+  const separator = '------------------------------------------------------------------------';
+  const complimentsOf = '\n\nCompliments of the largest global Peloton community at https://www.reddit.com/r/pelotoncycle';
+  const description = `Peloton ride description:\n${pelotonRideDescription}${includeComplimentsOf ? complimentsOf : ''}\n${separator}\nRide thread:\n` +
+    `${redditPost.url}\n${separator}\nRide thread text:\n${redditPost.title}\n\n${redditPost.selftext}`
+  return description;
 }
 
 function buildEventSummary(ride) {
