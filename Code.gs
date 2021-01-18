@@ -2,6 +2,8 @@
 const groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
 const emailForLogs = 'pelotontestcalendar@gmail.com';
 
+const sendEmailNow = false;
+
 // Do not update these variables
 const classIdRegEx = /classId=[0-9a-f]{32}/i;
 const liveIdRegEx = /liveId=[0-9a-f]{32}/i;
@@ -19,7 +21,15 @@ function createTrigger() {
 function syncGroupRideCalendar() {
   getMetadataMappings();
   getGroupRides();
-  MailApp.sendEmail(emailForLogs, 'Group ride script execution log', loggingEmailText);
+
+  // only send out email twice per day at ~6am and 6pm
+  const now = new Date();
+  if (sendEmailNow ||
+    (now.getHours() == 6 && now.getMinutes() <= 10 && now.getMinutes() > 0) ||
+    (now.getHours() == 18 && now.getMinutes() <= 10 && now.getMinutes() > 0)) {
+      MailApp.sendEmail(emailForLogs, 'Group ride script execution log', loggingEmailText);
+      Logger.log('Script execution email sent.')
+  }
 }
 
 function getMetadataMappings() {
@@ -85,14 +95,22 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     const liveId = liveIdString[0].split('=')[1];
     let matchingEvent = existingLiveRideEvents.get(liveId);
     if (!matchingEvent) {
-      const logMessage = `Event creation failed: No matching live ride found in live ride calendar. LiveId provided: ${liveId}\n`;
+      // if there isn't a matching event, either it has already passed or there's something wrong with the liveId
+      // make call to Peloton API to see if ride has passed
+      const rideComplete = isLiveRideComplete(liveId);
+      let logMessage = '';
+      if (rideComplete) {
+        logMessage = `No action taken: ride start date/time has already passed.`;
+      } else {
+        logMessage = `Event creation failed: No matching live ride found in live ride calendar. LiveId provided: ${liveId}`;
+      }
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       unmatchedLiveRidePosts.push(post);
       continue;
     }
     if (existingGroupRideEvents.has(liveId)) {
-      const logMessage = `No action taken: group ride already exists.`;
+      const logMessage = `No action taken: group ride calendar event already exists.`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -104,12 +122,25 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     matchingEvent.id = '';
     matchingEvent.iCalUID = '';
     Calendar.Events.insert(matchingEvent, groupCalendarId);
-    const logMessage = `Success: Live ride copied to group calendar.`;
+    const logMessage = `Success: Live ride calendar event copied to group calendar.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
   }
   
   return unmatchedLiveRidePosts;
+}
+
+function isLiveRideComplete(liveId) {
+  const url = `https://api.onepeloton.com/api/peloton/${liveId}`;
+  let response = UrlFetchApp.fetch(url, {'muteHttpExceptions': true});
+  let json = response.getContentText();
+  let data = JSON.parse(json);
+
+  if (!!data && data.status === 'COMPLETE') {
+    return true;
+  } 
+
+  return false;
 }
 
 function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {  
@@ -135,22 +166,22 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
       
     // Logger.log(`Finished parsing On Demand ride data. rideDateTime: ${rideDateTime}, classId: ${classId}, title: ${title}`);
     if (existingGroupRideEvents.has(classId)) {
-      const logMessage = `No action taken: group ride event already exists.`;
+      const logMessage = `No action taken: group ride calendar event already exists.`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
     }
     
-    let event = createEvent(classId, rideDateTime, post);
+    let event = createOnDemandEvent(classId, rideDateTime, post);
     if (!!event) {
-      const logMessage = `Success: On demand ride created in group calendar.`;
+      const logMessage = `Success: On demand ride calendar event created in group calendar.`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     }
   }
 }
 
-function createEvent(classId, startDateTime, post) {
+function createOnDemandEvent(classId, startDateTime, post) {
   if (startDateTime < new Date()) {
     const logMessage = `No action taken: ride start date/time has already passed.`;
     Logger.log(logMessage);
@@ -172,7 +203,7 @@ function createEvent(classId, startDateTime, post) {
     end: {
       dateTime: endTime.toISOString()
     },
-    colorId: 3,
+    colorId: 5,
     // Extended properties are not currently displayed in created calendar events. They are just metadata tags.
     extendedProperties: {
       shared: {
@@ -221,8 +252,8 @@ function buildEventSummary(ride) {
   if (ride.origin_locale == 'de-DE') {
     foreignLanguageIndicator = ' [German]';
   }
-  const encoreIndicator = ' [Encore]';
-  const eventSummary = `${ride.title}${foreignLanguageIndicator}${encoreIndicator}`;
+  const onDemandIndicator = ' [On Demand]';
+  const eventSummary = `${ride.title}${foreignLanguageIndicator}${onDemandIndicator}`;
   return eventSummary;
 }
 
@@ -252,7 +283,7 @@ function getGroupRideDateTime(title) {
     // month should be at index 2; date should be at index 26
     // will currently fail if comma or "st" ending on date not provided - e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
     // Can add this in future, but for now not allowing this format.
-    const logMessage = 'Post title did not use mm/dd/yyyy format. Group calendar event not created';
+    const logMessage = 'Post title did not mm/dd/yyyy format. Group calendar event not created';
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
