@@ -5,6 +5,7 @@ const groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
 const classIdRegEx = /classId=[0-9a-f]{32}/i;
 const liveIdRegEx = /liveId=[0-9a-f]{32}/i;
 var instructorHashMap;
+var existingPostIds = new Array();
 
 function createTrigger() {
   // Get Reddit posts every 5 minutes to avoid hitting Reddit and Google Apps Script quotas
@@ -37,21 +38,25 @@ function getGroupRides() {
   let data = JSON.parse(json);
   
   let posts = !!data.data ? data.data.children : null;
-  
-  const groupRideTitleRegEx = /(.*?)\|(.*?)\|(.*?)\|(.*?)/;
-  
+  if (!posts) {
+    Logger.log("Reddit's API did not return any r/pelotoncycle group posts. Script run aborted.");
+    return null;
+  }
+
   let groupRidePosts = posts.filter(p => !!p.data.link_flair_text && p.data.link_flair_text.includes(':groupride'));
+  existingPostIds = groupRidePosts.map(grp => grp.data.id);
+
   //TODO: check for post with groupride flair that don't match classId or liveId reg ex
   let onDemandGroupRidePosts = groupRidePosts.filter(grp => grp.data.selftext.match(classIdRegEx));
   let liveGroupRidePosts = groupRidePosts.filter(grp => grp.data.selftext.match(liveIdRegEx));
-  
   
   let existingLiveRideEvents = getUpcomingEvents('primary');
   let existingGroupRideEvents = getUpcomingEvents(groupCalendarId);
 
   let unmatchedLiveRidePosts = handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents);
   let success = handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents);
-  
+
+  handleDeletedPosts(existingPostIds);
 }
 
 function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents) {
@@ -70,7 +75,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     const liveId = liveIdString[0].split('=')[1];
     let matchingEvent = existingLiveRideEvents.get(liveId);
     if (!matchingEvent) {
-      Logger.log(`Error: no matching group ride event found for live ride post. Title: ${title}, liveId provided: ${liveId}`);
+      Logger.log(`No group ride calendar event created. No matching live ride found in live ride calendar. Title: ${title}, liveId provided: ${liveId}`);
       unmatchedLiveRidePosts.push(post);
       continue;
     }
@@ -78,7 +83,13 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       Logger.log(`Existing group ride event found for classId ${matchingEvent.id}.`);
       continue;
     }
-    Calendar.Events.insert(matchingEvent, groupCalendarId);
+
+    matchingEvent.description = matchingEvent.description.concat(`\nRide Thread: ${post.url}\n\nRide Thread text: ${title}\n\n${post.selftext}`);
+
+    // If an event with same eventId was already created & deleted, inserting the same event again will fail. Clearing out the below ids avoids that issue.
+    matchingEvent.id = '';
+    matchingEvent.iCalUID = '';
+      Calendar.Events.insert(matchingEvent, groupCalendarId);
   }
   
   return unmatchedLiveRidePosts;
@@ -135,10 +146,12 @@ function createEvent(classId, startDateTime, post) {
         classType: ride.fitness_discipline_display_name,
         hasClosedCaptions: ride.has_closed_captions,
         instructor: getInstructorName(ride.instructor_id),
-        metadataId: classId
+        metadataId: classId,
+        redditPostId: post.id
       }
     }
   };
+
   // Create event in main shared calendar
   event = Calendar.Events.insert(event, groupCalendarId);
   
@@ -168,7 +181,7 @@ function getInstructorName(instructorId) {
 }
 
 function buildEventSummary(ride) {
-  const foreignLanguageIndicator = '';
+  let foreignLanguageIndicator = '';
   // If rides are offered in other languages someday, this will need to be updated.
   if (ride.origin_locale == 'de-DE') {
     foreignLanguageIndicator = ' [German]';
@@ -180,7 +193,7 @@ function buildEventSummary(ride) {
 
 function getGroupRideDateTime(title) {
   const mmddRegEx = /((1[012]|[1-9]|0[1-9]|)[- \/.](3[01]|[12][0-9]|[1-9]|0[1-9])([- \/.](20[23][0-9]|[23][0-9]))?)/;
-  const monthDateRegEx = /(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?([1-9]|[12][0-9]|3[01])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
+  const monthDateRegEx = /(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?(3[01]|[12][0-9]|[1-9])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
   const mmdd = title.match(mmddRegEx);
   const monthDate = title.match(monthDateRegEx);
   let month = 0;
@@ -193,7 +206,7 @@ function getGroupRideDateTime(title) {
     date = parseInt(mmdd[3], 10);
     
     // If no year provided, assume ride is scheduled for current year.
-    // todo: update this to check if date has already passes and, if so, assume the following year.
+    // todo: update this to check if date has already passed and, if so, assume the following year.
     if (!mmdd[5] || mmdd[5].length == 0) {
       year = new Date().getFullYear();
     } else {
@@ -201,8 +214,11 @@ function getGroupRideDateTime(title) {
       year = parseInt((mmdd[5].length == 4 ? mmdd[5] : ('20' + mmdd[5].slice(0,2))), 10);
     }
   } else if (!!monthDate) {
-    //todo - convert to date
-    
+    // month should be at index 2; date should be at index 26
+    // will currently fail if comma or "st" ending on date not provided - e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
+    // Can add this in future, but for now not allowing this format.
+    Logger.log("The following ride date was not in mm/dd/yyyy format. Group calendar event not created:");
+    return null;
   } else {
     Logger.log(`Could not parse date string from post title: ${title}`);
     return null;
@@ -292,4 +308,70 @@ function getUpcomingEvents(calendarId) {
     }
   }
   return existingEvents;
+}
+
+function handleDeletedPosts(existingPostIds) {
+  let existingEvents = getUpcomingEventMap();
+
+  if (existingEvents.size < 1) {
+    return null;
+  }
+
+  // check all upcoming events. If postId matches existingPostId, it's in the 100 posts we just got
+  // and is therefore a valid post. If postId not in list, hit the post URL to see if it returns anything.
+  // if not, delete the event.
+
+  for (const [key, value] of existingEvents) {
+    let redditPostId = key;
+    const getRedditPostURL = `https://www.reddit.com/by_id/t3_${redditPostId}/.json`;
+    let response = UrlFetchApp.fetch(getRedditPostURL, {'muteHttpExceptions': true});
+    let json = response.getContentText();
+    let data = JSON.parse(json);
+
+    if (!!data && !!data.data && !!data.data.children) {
+      continue;
+    } else {
+      deleteEventById(value.getId());
+    }
+  }
+}
+
+// returns map of redditPostId: googleCalendarEvent
+function getUpcomingEventMap() {
+  let existingEvents = new Map();
+  let now = new Date();
+  let events = Calendar.Events.list(groupCalendarId, {
+    timeMin: now.toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: 500
+  });
+  if (events.items && events.items.length > 0) {
+    for (let i = 0; i < events.items.length; i++) {
+      let event = events.items[i];
+      let extendedProperties = event.getExtendedProperties()
+      if (!extendedProperties) { 
+        continue;
+      }
+      let sharedExtendedProperties = extendedProperties.getShared();
+      if (!!sharedExtendedProperties && sharedExtendedProperties.redditPostId != null) {
+        existingEvents.set(sharedExtendedProperties.redditPostId, event);
+      }
+    }
+  }
+  return existingEvents;
+}
+
+function deleteEventById(eventId) {
+  try {
+    let event = CalendarApp.getCalendarById(groupCalendarId).getEventById(eventId);
+
+    var title = event.getTitle();
+    // Delete shared calendar event
+    event.deleteEvent();
+    Logger.log(`Event deleted. Related to deleted post: ${title}`);
+
+  } catch(e) {
+    Logger.log(`Error deleting event related to deleted post: ${title}. Error message: {e}`);
+  }
 }
