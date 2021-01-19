@@ -86,7 +86,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     let title = post.title.replace(/\s/g,'');
     const liveIdString = post.selftext.match(liveIdRegEx);
     if (!liveIdString) {
-      const logMessage = `Event creation failed: Ride post did not include LiveId. \nPost text: ${post.selftext}\n`;
+      const logMessage = `Event creation failed: ride post did not include LiveId. \nPost text: ${post.selftext}\n`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -102,7 +102,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       if (rideComplete) {
         logMessage = `No action taken: ride start date/time has already passed.`;
       } else {
-        logMessage = `Event creation failed: No matching live ride found in live ride calendar. LiveId provided: ${liveId}`;
+        logMessage = `Event creation failed: no matching live ride found in live ride calendar. LiveId provided: ${liveId}`;
       }
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
@@ -110,7 +110,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       continue;
     }
     if (existingGroupRideEvents.has(liveId)) {
-      const logMessage = `No action taken: group ride calendar event already exists.`;
+      const logMessage = `No action taken: group ride calendar event already exists.\nRide start time: ${matchingEvent.getStart().getDateTime()}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -159,9 +159,9 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
     const rideDateTime = getGroupRideDateTime(title);
     const classIdString = post.selftext.match(classIdRegEx);
     if (!classIdString) {
-      const logMessage = `Error: On Demand ride post did not include ClassId. Title: ${title}, post text: ${post.selftext}\n`;
+      const logMessage = `Event creation failed: On Demand ride post did not include ClassId.\nPost title: ${title}\nPost text: ${post.selftext}`;
       Logger.log(logMessage); 
-      loggingEmailText = loggingEmailText.concat(`${logMessage}\n`);
+      loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
     }
     
@@ -173,7 +173,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
       
     // Logger.log(`Finished parsing On Demand ride data. rideDateTime: ${rideDateTime}, classId: ${classId}, title: ${title}`);
     if (existingGroupRideEvents.has(classId)) {
-      const logMessage = `No action taken: group ride calendar event already exists.`;
+      const logMessage = `No action taken: group ride calendar event already exists.\nRide start time: ${rideDateTime}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -181,7 +181,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
     
     let event = createOnDemandEvent(classId, rideDateTime, post);
     if (!!event) {
-      const logMessage = `Success: On demand ride calendar event created in group calendar.\nRide start time: ${rideDateTime}`;
+      const logMessage = `Success: On Demand ride calendar event created in group calendar.\nRide start time: ${rideDateTime}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     }
@@ -190,7 +190,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
 
 function createOnDemandEvent(classId, startDateTime, post) {
   if (startDateTime < new Date()) {
-    const logMessage = `No action taken: ride start date/time has already passed.`;
+    const logMessage = `No action taken: ride start date/time has already passed.\nRide start time: ${startDateTime}`;
     Logger.log(logMessage);
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -232,7 +232,6 @@ function createOnDemandEvent(classId, startDateTime, post) {
 }
 
 function getMatchingClassInfo(classId) {
-  //todo: error handling
   const url = `https://api.onepeloton.com/api/ride/${classId}/details`;
   let response = UrlFetchApp.fetch(url, {'muteHttpExceptions': true});
   let json = response.getContentText();
@@ -298,12 +297,12 @@ function getGroupRideDateTime(title) {
     // month should be at index 2; date should be at index 26
     // will currently fail if comma or "st" ending on date not provided - e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
     // Can add this in future, but for now not allowing this format.
-    const logMessage = 'Post title did not mm/dd/yyyy format. Group calendar event not created';
+    const logMessage = 'Event creation failed: post title did not mm/dd/yyyy format.';
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
   } else {
-    const logMessage = `Could not parse date string from post title: ${title}`;
+    const logMessage = `Event creation failed: could not parse date from post title.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -311,14 +310,10 @@ function getGroupRideDateTime(title) {
   
   let rideTime = getGroupRideTime(title);
   if (!rideTime) {
-    // Logger.log(`Error: Could not parse ride time from post title: ${title}`);
     return null;
   }
   let rideDateTime = new Date(year, month - 1, date, rideTime[0], rideTime[1], 0);
   return rideDateTime;
-  
-  const mmddyyyRegEx = /(([1-9]|0[1-9]|1[012])[- \/.]([1-9]|0[1-9]|[12][0-9]|3[01])[- \/.](20[23][0-9]|[23][0-9]))/
-  const longFormRegEx = /(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?([1-9]|[12][0-9]|3[01])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
 }
 
 function getGroupRideTime(title) {
@@ -329,7 +324,7 @@ function getGroupRideTime(title) {
   
   let timeString = title.match(groupRideTimeRegEx);
   if (!timeString || timeString.length < 7) {
-    const logMessage = `Error parsing time`;
+    const logMessage = `Event creation failed: could not parse time from post title.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -344,7 +339,7 @@ function getGroupRideTime(title) {
      // Time provided as hh or h
     hour = isPM ? (parseInt(timeString[4], 10) + 12) : parseInt(timeString[4], 10);
   } else {
-    const logMessage = `Error parsing time`;
+    const logMessage = `Event creation failed: could not parse time from post title.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -367,7 +362,7 @@ function convertToEasternTime(hour, minutes, timeZone) {
   } else if (timeZone === 'pst' || timeZone === 'pt' || timeZone === 'pdt') {
     return new Array(hour + 3, minutes);
   } else {
-    const logMessage = `Could not convert to Eastern time. Hour: ${hour}, Minutes: ${minutes}, Time Zone: ${timeZone}`;
+    const logMessage = `Event creation failed: could not convert to Eastern time.\nHour: ${hour}, Minutes: ${minutes}, Time Zone: ${timeZone}`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
