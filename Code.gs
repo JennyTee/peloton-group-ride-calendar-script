@@ -122,9 +122,11 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     }
 
     // add group ride post information to event description
-    matchingEvent.description = buildEventDescription(matchingEvent.description, post, false),
+    matchingEvent.description = buildEventDescription(matchingEvent.description, post, false);
 
-    matchingEvent.summary = matchingEvent.summary.concat(' [Live]');
+    // update location so reddit group ride sidebar works
+    matchingEvent.location = getLocation(post.id, liveId, true);
+
     // If an event with same eventId was already created & deleted, inserting the same event again will fail. Clearing out the below ids avoids that issue.
     matchingEvent.id = '';
     matchingEvent.iCalUID = '';
@@ -202,7 +204,7 @@ function createOnDemandEvent(classId, startDateTime, post) {
   let instructorName = getInstructorName(ride.instructor_id);
   let event = {
     summary: summary,
-    location: instructorName,
+    location: getLocation(post.id, classId, false),
     description: buildEventDescription(ride.description, post, true),
     start: {
       dateTime: startDateTime.toISOString()
@@ -229,6 +231,18 @@ function createOnDemandEvent(classId, startDateTime, post) {
   event = Calendar.Events.insert(event, groupCalendarId);
   
   return event;
+}
+
+function getLocation(redditPostId, classOrLiveId, isLiveEvent) {
+  const groupThread = `[Group Thread](https://old.reddit.com/r/pelotoncycle/comments/${redditPostId}/)`;
+  let classLink = '';
+  if (isLiveEvent) {
+    classLink = `[Class Link](https://members.onepeloton.com/schedule/cycling?modal=scheduledClassDetails&liveId=${classOrLiveId})`;
+  } else {
+    classLink = `[Class Link](https://members.onepeloton.com/classes/cycling?modal=classDetailsModal&classId=${classOrLiveId})`;
+  }
+
+  return `${groupThread} & ${classLink}`;
 }
 
 function getMatchingClassInfo(classId) {
@@ -297,7 +311,7 @@ function getGroupRideDateTime(title) {
     // month should be at index 2; date should be at index 26
     // will currently fail if comma or "st" ending on date not provided - e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
     // Can add this in future, but for now not allowing this format.
-    const logMessage = 'Event creation failed: post title did not mm/dd/yyyy format.';
+    const logMessage = 'Event creation failed: post title did not use mm/dd/yyyy format.';
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
