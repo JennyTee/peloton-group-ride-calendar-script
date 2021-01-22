@@ -1,3 +1,6 @@
+// Peloton Group Ride Calendar Script
+// Version 1.0.1
+
 //Update these variables before running script:
 const groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
 const emailForLogs = 'pelotontestcalendar@gmail.com';
@@ -421,7 +424,7 @@ function handleDeletedPosts(existingPostIds) {
     return null;
   }
 
-  // check all upcoming events. If postId matches existingPostId, it's in the 100 posts we just got
+  // Check all upcoming events. If postId matches existingPostId, it's in the 100 posts we just got
   // and is therefore a valid post. If postId not in list, hit the post URL to see if it returns anything.
   // if not, delete the event.
 
