@@ -297,13 +297,13 @@ function getGroupRideDateTime(title) {
     month = parseInt(mmdd[2], 10);
     date = parseInt(mmdd[3], 10);
     
-    // If no year provided, assume ride is scheduled for current year.
-    // todo: update this to assume the following year if current month > 11 and target class month < 3.
+    // If no year provided:
     if (!mmdd[5] || mmdd[5].length == 0) {
-      // assume following year if it's currently November or later and the provided month is Jan or Feb
       if (now.getMonth() > 10 && month < 2) {
+        // assume following year if it's currently Nov/Dec and the provided month is Jan or Feb
         year = now.getFullYear() + 1;
       } else {
+        // otherwise assume current year
         year = now.getFullYear();
       }
     } else {
