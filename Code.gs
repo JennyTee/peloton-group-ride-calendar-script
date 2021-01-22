@@ -59,7 +59,7 @@ function getGroupRides() {
     return null;
   }
 
-  let groupRidePosts = posts.filter(p => !!p.data.link_flair_text && p.data.link_flair_text.includes(':groupride'));
+  let groupRidePosts = posts.filter(p => !!p.data.link_flair_text && p.data.link_flair_text.toLowerCase().includes('group'));
   existingPostIds = groupRidePosts.map(grp => grp.data.id);
 
   //TODO: check for post with groupride flair that don't match classId or liveId reg ex
@@ -76,7 +76,6 @@ function getGroupRides() {
 }
 
 function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents) {
-  // TODO: For live/encore group rides, copy existing live ride calendar event to group ride calendar
   let unmatchedLiveRidePosts = new Array();
 
   for (let i = 0; i < liveGroupRidePosts.length; i++) {
@@ -169,11 +168,9 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
     
     const classId = classIdString[0].split('=')[1];
     if (!rideDateTime || !classId) {
-      // Logger.log(`parsing error for rideDateTime: ${rideDateTime}, classId: ${classId}, title: ${title}`);
       continue;
     } 
       
-    // Logger.log(`Finished parsing On Demand ride data. rideDateTime: ${rideDateTime}, classId: ${classId}, title: ${title}`);
     if (existingGroupRideEvents.has(classId)) {
       const logMessage = `No action taken: group ride calendar event already exists.\nRide start time: ${rideDateTime}`;
       Logger.log(logMessage); 
@@ -293,6 +290,7 @@ function getGroupRideDateTime(title) {
   let month = 0;
   let date = 0;
   let year = 0;
+  let now = new Date();
   
   // The RegEx already validated these values as integers, so no need to double check before calling parseInt
   if (!!mmdd && mmdd.length >= 5) {
@@ -300,17 +298,23 @@ function getGroupRideDateTime(title) {
     date = parseInt(mmdd[3], 10);
     
     // If no year provided, assume ride is scheduled for current year.
-    // todo: update this to check if date has already passed and, if so, assume the following year.
+    // todo: update this to assume the following year if current month > 11 and target class month < 3.
     if (!mmdd[5] || mmdd[5].length == 0) {
-      year = new Date().getFullYear();
+      // assume following year if it's currently November or later and the provided month is Jan or Feb
+      if (now.getMonth() > 10 && month < 2) {
+        year = now.getFullYear() + 1;
+      } else {
+        year = now.getFullYear();
+      }
     } else {
       // Note: only works for 20xx years
       year = parseInt((mmdd[5].length == 4 ? mmdd[5] : ('20' + mmdd[5].slice(0,2))), 10);
     }
   } else if (!!monthDate) {
+    // Can add this in the future, if desired. For now, not supporting written-out day format.
     // month should be at index 2; date should be at index 26
-    // will currently fail if comma or "st" ending on date not provided - e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
-    // Can add this in future, but for now not allowing this format.
+    // if used, monthDate regex currently fails if comma or "st" ending on date not provided 
+    // e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
     const logMessage = 'Event creation failed: post title did not use mm/dd/yyyy format.';
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
