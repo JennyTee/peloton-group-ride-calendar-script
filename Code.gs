@@ -7,16 +7,24 @@ Updates in this version:
 -Fix for incorrect log message if live ride is already complete
 -Fix for incorrect URLs in event location string
 -Minor logging email format changes
--Disable event deletion due to Reddit API limit on posts we can get
 */
 
 //Update these variables before running script:
-const groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
-const emailForLogs = 'pelotontestcalendar@gmail.com';
-
-const sendEmailNow = true;
+const testMode = true;
+const sendEmailNow = false;
 
 // Do not update these variables
+var groupCalendarId;
+var emailForLogs;
+
+if (testMode) {
+  groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
+  emailForLogs = 'pelotontestcalendar@gmail.com';
+} else {
+  groupCalendarId ='fvjve3k2n5p7mu5c018vc4n80c@group.calendar.google.com';
+  emailForLogs = 'onepeloton@gmail.com, pelotontestcalendar@gmail.com';
+}
+
 const classIdRegEx = /classId=[0-9a-f]{32}/i;
 const liveIdRegEx = /liveId=[0-9a-f]{32}/i;
 var instructorHashMap;
@@ -100,10 +108,7 @@ function getGroupRides() {
   let unmatchedLiveRidePosts = handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents);
   let success = handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents);
 
-  // Commenting this out for now since the Reddit API call above limits us to the 100 most-recent posts. 
-  // As of 1/2021, this gives about 4 days worth of posts, and we don't want to delete any events that are
-  // created more than 4 days in advance.
-  // handleDeletedPosts(existingPostIds);
+   handleDeletedPosts(existingPostIds);
 }
 
 function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents) {
@@ -111,7 +116,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
 
   for (let i = 0; i < liveGroupRidePosts.length; i++) {
     let post = liveGroupRidePosts[i].data;
-    const logMessagePostInfo = `Live ride post: ${post.title} ${post.url}`;
+    const logMessagePostInfo = `Live ride post: ${post.title}\n${post.url}`;
     Logger.log(logMessagePostInfo);
     loggingEmailText = loggingEmailText.concat(`${logMessagePostInfo}\n`);
 
@@ -472,6 +477,10 @@ function handleDeletedPosts(existingPostIds) {
   if (existingEvents.size < 1) {
     return null;
   }
+
+  // The below code is needed because we're only getting the 100 most-recent posts from the Reddit API, so we need
+  // an extra check to see if the event didn't show up because 1) it was posted prior to the 100th post or 
+  // 2) because it was deleted (which is important to support in case someone makes a typo in the post title)
 
   // Check all upcoming events. If postId matches existingPostId, it's in the 100 posts we just got
   // and is therefore a valid post. If postId not in list, hit the post URL to see if it returns anything.
