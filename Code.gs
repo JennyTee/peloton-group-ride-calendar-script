@@ -3,10 +3,11 @@ Peloton Group Ride Calendar Script
 Version 1.0.2
 
 Updates in this version: 
--Fix for multiple event creation if post contains both
+-Fix for multiple event creation if post contains both liveIds and classIds
 -Fix for incorrect log message if live ride is already complete
 -Fix for incorrect URLs in event location string
 -Minor logging email format changes
+-Disable event deletion due to Reddit API limit on posts we can get
 */
 
 //Update these variables before running script:
@@ -99,7 +100,10 @@ function getGroupRides() {
   let unmatchedLiveRidePosts = handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents);
   let success = handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents);
 
-  handleDeletedPosts(existingPostIds);
+  // Commenting this out for now since the Reddit API call above limits us to the 100 most-recent posts. 
+  // As of 1/2021, this gives about 4 days worth of posts, and we don't want to delete any events that are
+  // created more than 4 days in advance.
+  // handleDeletedPosts(existingPostIds);
 }
 
 function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existingGroupRideEvents) {
@@ -107,7 +111,9 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
 
   for (let i = 0; i < liveGroupRidePosts.length; i++) {
     let post = liveGroupRidePosts[i].data;
-    loggingEmailText = loggingEmailText.concat(`Live ride post: ${post.title} ${post.url}\n`);
+    const logMessagePostInfo = `Live ride post: ${post.title} ${post.url}`;
+    Logger.log(logMessagePostInfo);
+    loggingEmailText = loggingEmailText.concat(`${logMessagePostInfo}\n`);
 
     let title = post.title.replace(/\s/g,'');
     const liveIdString = post.selftext.match(liveIdRegEx);
@@ -270,6 +276,7 @@ function createOnDemandEvent(classId, startDateTime, post) {
 
 function getLocation(redditPostId, classOrLiveId, isLiveEvent, classType) {
   classType = classType.toLowerCase();
+
   // as of 1/2021, URLs are still using old format for bootcamp (now 'tread bootcamp' in API) and bike_bootcamp (now 'bike bootcamp in API) categories
   if (classType === 'bike bootcamp') {
     classType = 'bike_bootcamp';
@@ -284,7 +291,6 @@ function getLocation(redditPostId, classOrLiveId, isLiveEvent, classType) {
   } else {
     classLink = `[Class Link](https://members.onepeloton.com/classes/${classType}?modal=classDetailsModal&classId=${classOrLiveId})`;
   }
-  Logger.log(classLink);
   return `${groupThread} & ${classLink}`;
 }
 
@@ -519,12 +525,12 @@ function deleteEventById(eventId) {
     var title = event.getTitle();
     // Delete shared calendar event
     event.deleteEvent();
-    const logMessage = `Event deleted due to deleted post: ${title}`;
+    const logMessage = `Event deleted: ${title}`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
 
   } catch(e) {
-    const logMessage = `Error deleting event related to deleted post: ${title}. Error message: {e}`;
+    const logMessage = `Error deleting event related to post: ${title}. Error message: {e}`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
   }
