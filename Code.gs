@@ -31,13 +31,6 @@ var instructorHashMap;
 var existingPostIds = new Array();
 var loggingEmailText = '';
 
-function createTrigger() {
-  // Get Reddit posts every 10 minutes to avoid hitting Reddit and Google Apps Script quotas
-  ScriptApp.newTrigger("syncGroupRideCalendar")
-           .timeBased().everyMinutes(10).create();
-  Logger.log('Trigger created.');
-}
-
 function syncGroupRideCalendar() {
   getMetadataMappings();
   getGroupRides();
@@ -50,6 +43,13 @@ function syncGroupRideCalendar() {
       MailApp.sendEmail(emailForLogs, 'Group ride script execution log', loggingEmailText);
       Logger.log(`Script execution email sent to ${emailForLogs}.`);
   }
+}
+
+function createTrigger() {
+  // Get Reddit posts every 10 minutes to avoid hitting Reddit and Google Apps Script quotas
+  ScriptApp.newTrigger("syncGroupRideCalendar")
+           .timeBased().everyMinutes(10).create();
+  Logger.log('Trigger created.');
 }
 
 function getMetadataMappings() {
