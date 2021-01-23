@@ -1,11 +1,11 @@
 // Peloton Group Ride Calendar Script
-// Version 1.0.1
+// Version 1.0.2
 
 //Update these variables before running script:
 const groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
 const emailForLogs = 'pelotontestcalendar@gmail.com';
 
-const sendEmailNow = false;
+const sendEmailNow = true;
 
 // Do not update these variables
 const classIdRegEx = /classId=[0-9a-f]{32}/i;
@@ -65,10 +65,26 @@ function getGroupRides() {
   let groupRidePosts = posts.filter(p => !!p.data.link_flair_text && p.data.link_flair_text.toLowerCase().includes('group'));
   existingPostIds = groupRidePosts.map(grp => grp.data.id);
 
-  //TODO: check for post with groupride flair that don't match classId or liveId reg ex
-  let onDemandGroupRidePosts = groupRidePosts.filter(grp => grp.data.selftext.match(classIdRegEx));
   let liveGroupRidePosts = groupRidePosts.filter(grp => grp.data.selftext.match(liveIdRegEx));
-  
+
+  // Stacked group ride posts can potentially have live and on demand classes in them. We prioritize the live ones (above).
+  // If there are also on demand rides, we do not handle these at this time.
+  // If only on demand rides exist, the script will create an event for the first on demand ride.
+  const toDelete = new Set(liveGroupRidePosts.map(p => p.data.id));
+  const nonLiveGroupRidePosts = groupRidePosts.filter(obj => !toDelete.has(obj.data.id));
+
+  let onDemandGroupRidePosts = nonLiveGroupRidePosts.filter(grp => grp.data.selftext.match(classIdRegEx));
+
+  let postsWithoutClassIdOrLiveId = nonLiveGroupRidePosts.filter(grp => !grp.data.selftext.match(classIdRegEx));
+
+  if (!!postsWithoutClassIdOrLiveId) {
+    postsWithoutClassIdOrLiveId.forEach( p => {
+      const logMessage = `${p.data.title}\n${p.data.url}\nEVENT CREATION FAILED: Reddit post missing link with ClassId/LiveId.`;
+      Logger.log(logMessage); 
+      loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
+    })
+  }
+
   let existingLiveRideEvents = getUpcomingEvents('primary');
   let existingGroupRideEvents = getUpcomingEvents(groupCalendarId);
 
@@ -88,7 +104,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     let title = post.title.replace(/\s/g,'');
     const liveIdString = post.selftext.match(liveIdRegEx);
     if (!liveIdString) {
-      const logMessage = `Event creation failed: ride post did not include LiveId. \nPost text: ${post.selftext}\n`;
+      const logMessage = `EVENT CREATION FAILED: ride post did not include LiveId. \nPost text: ${post.selftext}\n`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -102,9 +118,9 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       const rideComplete = isLiveRideComplete(liveId);
       let logMessage = '';
       if (rideComplete) {
-        logMessage = `No action taken: ride start date/time has already passed.`;
+        logMessage = `No action needed: ride start date/time has already passed.`;
       } else {
-        logMessage = `Event creation failed: no matching live ride found in live ride calendar. LiveId provided: ${liveId}`;
+        logMessage = `EVENT CREATION FAILED: no matching live ride found in live ride calendar. LiveId provided: ${liveId}`;
       }
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
@@ -112,7 +128,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       continue;
     }
     if (existingGroupRideEvents.has(liveId)) {
-      const logMessage = `No action taken: group ride calendar event already exists.\nRide start time: ${matchingEvent.getStart().getDateTime()}`;
+      const logMessage = `No action needed: group ride calendar event already exists.\nRide start time: ${matchingEvent.getStart().getDateTime()}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -163,7 +179,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
     const rideDateTime = getGroupRideDateTime(title);
     const classIdString = post.selftext.match(classIdRegEx);
     if (!classIdString) {
-      const logMessage = `Event creation failed: On Demand ride post did not include ClassId.\nPost title: ${title}\nPost text: ${post.selftext}`;
+      const logMessage = `EVENT CREATION FAILED: On Demand ride post did not include ClassId.\nPost title: ${title}\nPost text: ${post.selftext}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -175,7 +191,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
     } 
       
     if (existingGroupRideEvents.has(classId)) {
-      const logMessage = `No action taken: group ride calendar event already exists.\nRide start time: ${rideDateTime}`;
+      const logMessage = `No action needed: group ride calendar event already exists.\nRide start time: ${rideDateTime}`;
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
       continue;
@@ -192,7 +208,7 @@ function handleOnDemandPosts(onDemandGroupRidePosts, existingGroupRideEvents) {
 
 function createOnDemandEvent(classId, startDateTime, post) {
   if (startDateTime < new Date()) {
-    const logMessage = `No action taken: ride start date/time has already passed.\nRide start time: ${startDateTime}`;
+    const logMessage = `No action needed: ride start date/time has already passed.\nRide start time: ${startDateTime}`;
     Logger.log(logMessage);
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -318,12 +334,12 @@ function getGroupRideDateTime(title) {
     // month should be at index 2; date should be at index 26
     // if used, monthDate regex currently fails if comma or "st" ending on date not provided 
     // e.g., Jan 1st 2020 is ok but Jan 1 2020 is not.
-    const logMessage = 'Event creation failed: post title did not use mm/dd/yyyy format.';
+    const logMessage = 'EVENT CREATION FAILED: post title did not use mm/dd/yyyy format.';
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
   } else {
-    const logMessage = `Event creation failed: could not parse date from post title.`;
+    const logMessage = `EVENT CREATION FAILED: could not parse date from post title.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -345,7 +361,7 @@ function getGroupRideTime(title) {
   
   let timeString = title.match(groupRideTimeRegEx);
   if (!timeString || timeString.length < 7) {
-    const logMessage = `Event creation failed: could not parse time from post title.`;
+    const logMessage = `EVENT CREATION FAILED: could not parse time from post title.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -360,7 +376,7 @@ function getGroupRideTime(title) {
      // Time provided as hh or h
     hour = isPM ? (parseInt(timeString[4], 10) + 12) : parseInt(timeString[4], 10);
   } else {
-    const logMessage = `Event creation failed: could not parse time from post title.`;
+    const logMessage = `EVENT CREATION FAILED: could not parse time from post title.`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
@@ -383,7 +399,7 @@ function convertToEasternTime(hour, minutes, timeZone) {
   } else if (timeZone === 'pst' || timeZone === 'pt' || timeZone === 'pdt') {
     return new Array(hour + 3, minutes);
   } else {
-    const logMessage = `Event creation failed: could not convert to Eastern time.\nHour: ${hour}, Minutes: ${minutes}, Time Zone: ${timeZone}`;
+    const logMessage = `EVENT CREATION FAILED: could not convert to Eastern time.\nHour: ${hour}, Minutes: ${minutes}, Time Zone: ${timeZone}`;
     Logger.log(logMessage); 
     loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
     return null;
