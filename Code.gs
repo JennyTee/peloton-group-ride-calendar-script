@@ -1,5 +1,13 @@
-// Peloton Group Ride Calendar Script
-// Version 1.0.2
+/* 
+Peloton Group Ride Calendar Script
+Version 1.0.2
+
+Updates in this version: 
+-Fix for multiple event creation if post contains both
+-Fix for incorrect log message if live ride is already complete
+-Fix for incorrect URLs in event location string
+-Minor logging email format changes
+*/
 
 //Update these variables before running script:
 const groupCalendarId = 'vlmi3d70cioq0ef0kgoouh91cg@group.calendar.google.com';
@@ -120,7 +128,7 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
       if (rideComplete) {
         logMessage = `No action needed: ride start date/time has already passed.`;
       } else {
-        logMessage = `EVENT CREATION FAILED: no matching live ride found in live ride calendar. LiveId provided: ${liveId}`;
+        logMessage = `EVENT CREATION FAILED: no matching live ride found in live ride calendar. ${post.url} \nLiveId provided: ${liveId}`;
       }
       Logger.log(logMessage); 
       loggingEmailText = loggingEmailText.concat(`${logMessage}\n\n`);
@@ -143,7 +151,16 @@ function handleLiveRidePosts(liveGroupRidePosts, existingLiveRideEvents, existin
     matchingEvent.description = buildEventDescription(matchingEvent.description, post, false);
 
     // update location so reddit group ride sidebar works
-    matchingEvent.location = getLocation(post.id, liveId, true);
+    let classType = '';
+    let extendedProperties = matchingEvent.getExtendedProperties()
+      if (extendedProperties) {
+        let sharedExtendedProperties = extendedProperties.getShared();
+        if (!!sharedExtendedProperties && sharedExtendedProperties.classType != null) {
+          classType = sharedExtendedProperties.classType;
+        } 
+      }
+
+    matchingEvent.location = getLocation(post.id, liveId, true, classType);
 
     // If an event with same eventId was already created & deleted, inserting the same event again will fail. Clearing out the below ids avoids that issue.
     matchingEvent.id = '';
@@ -163,7 +180,9 @@ function isLiveRideComplete(liveId) {
   let json = response.getContentText();
   let data = JSON.parse(json);
 
-  if (!!data && data.status === 'COMPLETE') {
+  // Added check for scheduled_start_time b/c sometimes a ride that is completed actually has is_complete == false. Not sure why.
+  // Example: https://api.onepeloton.com/api/peloton/a8436ddabb414f5b95eef6a853a2ebb7
+  if (!!data && (data.is_complete || (!!data.scheduled_start_time && data.scheduled_start_time < new Date()))) {
     return true;
   } 
 
@@ -220,7 +239,7 @@ function createOnDemandEvent(classId, startDateTime, post) {
   let instructorName = getInstructorName(ride.instructor_id);
   let event = {
     summary: summary,
-    location: getLocation(post.id, classId, false),
+    location: getLocation(post.id, classId, false, ride.fitness_discipline),
     description: buildEventDescription(ride.description, post, true),
     start: {
       dateTime: startDateTime.toISOString()
@@ -249,15 +268,23 @@ function createOnDemandEvent(classId, startDateTime, post) {
   return event;
 }
 
-function getLocation(redditPostId, classOrLiveId, isLiveEvent) {
+function getLocation(redditPostId, classOrLiveId, isLiveEvent, classType) {
+  classType = classType.toLowerCase();
+  // as of 1/2021, URLs are still using old format for bootcamp (now 'tread bootcamp' in API) and bike_bootcamp (now 'bike bootcamp in API) categories
+  if (classType === 'bike bootcamp') {
+    classType = 'bike_bootcamp';
+  } else if (classType === 'tread bootcamp') {
+    classType = 'bootcamp';
+  }
+
   const groupThread = `[Group Thread](https://old.reddit.com/r/pelotoncycle/comments/${redditPostId}/)`;
   let classLink = '';
   if (isLiveEvent) {
-    classLink = `[Class Link](https://members.onepeloton.com/schedule/cycling?modal=scheduledClassDetails&liveId=${classOrLiveId})`;
+    classLink = `[Class Link](https://members.onepeloton.com/schedule/${classType}?modal=scheduledClassDetails&liveId=${classOrLiveId})`;
   } else {
-    classLink = `[Class Link](https://members.onepeloton.com/classes/cycling?modal=classDetailsModal&classId=${classOrLiveId})`;
+    classLink = `[Class Link](https://members.onepeloton.com/classes/${classType}?modal=classDetailsModal&classId=${classOrLiveId})`;
   }
-
+  Logger.log(classLink);
   return `${groupThread} & ${classLink}`;
 }
 
