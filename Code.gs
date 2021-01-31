@@ -1,12 +1,9 @@
 /* 
 Peloton Group Ride Calendar Script
-Version 1.0.2
+Version 1.0.3
 
 Updates in this version: 
--Fix for multiple event creation if post contains both liveIds and classIds
--Fix for incorrect log message if live ride is already complete
--Fix for incorrect URLs in event location string
--Minor logging email format changes
+-Updated mmdd regex to accept backward slash as separator
 */
 
 //Update these variables before running script:
@@ -340,7 +337,7 @@ function buildEventSummary(ride) {
 }
 
 function getGroupRideDateTime(title) {
-  const mmddRegEx = /((1[012]|[1-9]|0[1-9]|)[- \/.](3[01]|[12][0-9]|[1-9]|0[1-9])([- \/.](20[23][0-9]|[23][0-9]))?)/;
+  const mmddRegEx = /((1[012]|[1-9]|0[1-9]|)[- \/\\.](3[01]|[12][0-9]|[1-9]|0[1-9])([- \/\\.](20[23][0-9]|[23][0-9]))?)/;
   const monthDateRegEx = /(((Jan)|(January)|(Feb)|(February)|(Mar)|(March)|(Apr)|(April)|(May)|(Jun)|(June)|(Aug)|(August)|(Sep)|(Sept)|(September)|(Oct)|(October)|(Nov)|(November)|(Dec)|(December))\.?(3[01]|[12][0-9]|[1-9])s?t?n?r?d?h?,?(20[23][0-9]|[23][0-9])?)/;
   const mmdd = title.match(mmddRegEx);
   const monthDate = title.match(monthDateRegEx);
